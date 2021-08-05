@@ -51,6 +51,7 @@ func TestCompiler(t *testing.T) {
 		{"pragma.go", ""},
 		{"goroutine.go", "wasm"},
 		{"goroutine.go", "cortex-m-qemu"},
+		{"goasm.go", "x86_64--linux"},
 		{"channel.go", ""},
 		{"intrinsics.go", "cortex-m-qemu"},
 		{"intrinsics.go", "wasm"},
@@ -62,6 +63,15 @@ func TestCompiler(t *testing.T) {
 	}
 	if minor >= 17 {
 		tests = append(tests, testCase{"go1.17.go", ""})
+	}
+
+	// For the goasm.go test.
+	goAsmReferences := map[string]string{
+		"main.AsmSqrt":         "__GoABI0_main.AsmSqrt",
+		"main.AsmAdd":          "__GoABI0_main.AsmAdd",
+		"main.AsmFoo":          "__GoABI0_main.AsmFoo",
+		"main.asmExport":       "__GoABI0_main.asmExport",
+		"main.asmGlobalExport": "__GoABI0_main.asmGlobalExport",
 	}
 
 	for _, tc := range tests {
@@ -114,7 +124,7 @@ func TestCompiler(t *testing.T) {
 			// Compile AST to IR.
 			program := lprogram.LoadSSA()
 			pkg := lprogram.MainPkg()
-			mod, errs := CompilePackage(tc.file, pkg, program.Package(pkg.Pkg), machine, compilerConfig, false)
+			mod, errs := CompilePackage(tc.file, pkg, program.Package(pkg.Pkg), machine, compilerConfig, goAsmReferences, false)
 			if errs != nil {
 				for _, err := range errs {
 					t.Error(err)

@@ -16,14 +16,17 @@ import (
 	"io/ioutil"
 	"math/bits"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/tinygo-org/tinygo/compileopts"
 	"github.com/tinygo-org/tinygo/compiler"
 	"github.com/tinygo-org/tinygo/goenv"
+	"github.com/tinygo-org/tinygo/goobj"
 	"github.com/tinygo-org/tinygo/interp"
 	"github.com/tinygo-org/tinygo/loader"
 	"github.com/tinygo-org/tinygo/stacksize"
@@ -141,6 +144,7 @@ func Build(pkgName, outpath string, config *compileopts.Config, action func(Buil
 	var packageJobs []*compileJob
 	packageActionIDJobs := make(map[string]*compileJob)
 	optLevel, sizeLevel, _ := config.OptLevels()
+	var linkerDependencies []*compileJob
 	for _, pkg := range lprogram.Sorted() {
 		pkg := pkg // necessary to avoid a race condition
 
@@ -162,12 +166,48 @@ func Build(pkgName, outpath string, config *compileopts.Config, action func(Buil
 			importedPackages = append(importedPackages, job)
 		}
 
+		// References from Go code to assembly functions implemented in Go
+		// assembly. Example: {"math.Sqrt": "__GoABI0_math.Sqrt"}
+		goAsmReferences := map[string]string{}
+		var goAsmReferencesLock sync.Mutex
+
+		// Create jobs to compile all assembly files for this package.
+		compilerDependencies := importedPackages
+		for _, filename := range pkg.SFiles {
+			abspath := filepath.Join(pkg.Dir, filename)
+			job := &compileJob{
+				description: "compile Go assembly file " + abspath,
+				run: func(job *compileJob) error {
+					// Compile the assembly file using the assembler from the Go
+					// toolchain.
+					result, references, err := compileAsmFile(abspath, dir, pkg.Pkg.Path(), config)
+					job.result = result
+					if err != nil {
+						return err
+					}
+
+					// Add references (both defined and undefined) to the
+					// goAsmReferences map so that the compiler can create
+					// wrapper functions.
+					goAsmReferencesLock.Lock()
+					for internal, external := range references {
+						goAsmReferences[internal] = external
+					}
+					goAsmReferencesLock.Unlock()
+
+					return nil
+				},
+			}
+			compilerDependencies = append(compilerDependencies, job)
+			linkerDependencies = append(linkerDependencies, job)
+		}
+
 		// Create a job that will calculate the action ID for a package compile
 		// job. The action ID is the cache key that is used for caching this
 		// package.
 		packageActionIDJob := &compileJob{
 			description:  "calculate cache key for package " + pkg.ImportPath,
-			dependencies: importedPackages,
+			dependencies: compilerDependencies,
 			run: func(job *compileJob) error {
 				// Create a cache key: a hash from the action ID below that contains all
 				// the parameters for the build.
@@ -219,7 +259,7 @@ func Build(pkgName, outpath string, config *compileopts.Config, action func(Buil
 
 				// Compile AST to IR. The compiler.CompilePackage function will
 				// build the SSA as needed.
-				mod, errs := compiler.CompilePackage(pkg.ImportPath, pkg, program.Package(pkg.Pkg), machine, compilerConfig, config.DumpSSA())
+				mod, errs := compiler.CompilePackage(pkg.ImportPath, pkg, program.Package(pkg.Pkg), machine, compilerConfig, goAsmReferences, config.DumpSSA())
 				if errs != nil {
 					return newMultiError(errs)
 				}
@@ -437,7 +477,7 @@ func Build(pkgName, outpath string, config *compileopts.Config, action func(Buil
 	}
 
 	// Prepare link command.
-	linkerDependencies := []*compileJob{outputObjectFileJob}
+	linkerDependencies = append(linkerDependencies, outputObjectFileJob)
 	executable := filepath.Join(dir, "main")
 	tmppath := executable // final file
 	ldflags := append(config.LDFlags(), "-o", executable)
@@ -681,6 +721,61 @@ func Build(pkgName, outpath string, config *compileopts.Config, action func(Buil
 		MainDir:    lprogram.MainPkg().Dir,
 		ImportPath: lprogram.MainPkg().ImportPath,
 	})
+}
+
+// compileAsmFile compiles the given Go assembly file to an ELF object file. The
+// tmpdir is a temporary directory used for storing intermediary files. The
+// importPath is the Go import path for the package the assembly file belongs
+// to.
+func compileAsmFile(path, tmpdir string, importPath string, config *compileopts.Config) (string, map[string]string, error) {
+	// Assemble the Go assembly file. The output is the special Go object
+	// format.
+	goobjfile, err := ioutil.TempFile(tmpdir, "goasm-*.o")
+	if err != nil {
+		return "", nil, err
+	}
+	goobjfile.Close()
+	commandName := filepath.Join(goenv.Get("GOROOT"), "bin", "go")
+	args := []string{"tool", "asm", "-p", importPath, "-o", goobjfile.Name(), "-I", filepath.Join(goenv.Get("GOROOT"), "pkg", "include"), path}
+	cmd := exec.Command(commandName, args...)
+	if config.Options.PrintCommands != nil {
+		config.Options.PrintCommands(commandName, args...)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return "", nil, fmt.Errorf("could not invoke Go assembler: %w", err)
+	}
+
+	// Read the Go object file generated by the assembler.
+	buf, err := ioutil.ReadFile(goobjfile.Name())
+	if err != nil {
+		return "", nil, err
+	}
+	obj, err := goobj.ReadGoObj(buf)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// Create relocatable ELF file, for use in linking.
+	data, err := obj.CreateELF()
+	if err != nil {
+		return "", nil, err
+	}
+	elffile, err := ioutil.TempFile(tmpdir, "goasm-*.elf.o")
+	if err != nil {
+		return "", nil, err
+	}
+	_, err = elffile.Write(data)
+	if err != nil {
+		return "", nil, err
+	}
+	err = elffile.Close()
+	if err != nil {
+		return "", nil, err
+	}
+	return elffile.Name(), obj.References(), nil
 }
 
 // optimizePackage runs various package level optimizations. It assumes the
