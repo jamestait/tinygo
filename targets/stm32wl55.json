@@ -1,0 +1,13 @@
+{
+    "inherits": ["cortex-m4"],
+    "build-tags": ["stm32wl5x_cm4", "stm32wl55", "stm32"],
+    "linkerscript": "targets/stm32wl55.ld",
+    "cflags": [
+      "-Qunused-arguments"
+    ],
+    "extra-files": [
+      "src/device/stm32/stm32wl5x_cm4.s"
+    ],
+    "openocd-interface": "stlink",
+    "openocd-target": "stm32wlx"
+}
