@@ -117,6 +117,7 @@ The following 72 microcontroller boards are currently supported:
 * [ST Micro "Nucleo" L552ZE](https://www.st.com/en/evaluation-tools/nucleo-l552ze-q.html)
 * [ST Micro STM32F103XX "Bluepill"](https://stm32-base.org/boards/STM32F103C8T6-Blue-Pill)
 * [ST Micro STM32F407 "Discovery"](https://www.st.com/en/evaluation-tools/stm32f4discovery.html)
+* [The Things Industries Generic Node Sensor Edition](https://www.genericnode.com/docs/sensor-edition/)
 * [X9 Pro smartwatch](https://github.com/curtpw/nRF5x-device-reverse-engineering/tree/master/X9-nrf52832-activity-tracker/)
 
 For more information, see [this list of boards](https://tinygo.org/microcontrollers/). Pull requests for additional support are welcome!
