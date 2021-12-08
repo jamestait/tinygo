@@ -29,9 +29,6 @@ func init() {
 
 	// Timers init
 	initTickTimer(&machine.TIM1)
-
-	// Init Lora Radio
-	SubGhzInit()
 }
 
 func putchar(c byte) {
@@ -139,43 +136,4 @@ func initCLK() {
 
 	}
 
-}
-
-// SubGhzInit enable radio module
-func SubGhzInit() error {
-
-	// Enable APB3 Periph clock
-	stm32.RCC.APB3ENR.SetBits(stm32.RCC_APB3ENR_SUBGHZSPIEN)
-	_ = stm32.RCC.APB3ENR.Get() //Delay after RCC periph clock enable
-
-	// Enable TXCO and HSE
-	stm32.RCC.CR.SetBits(stm32.RCC_CR_HSEBYPPWR)
-	stm32.RCC.CR.SetBits(stm32.RCC_CR_HSEON)
-	for !stm32.RCC.CR.HasBits(stm32.RCC_CR_HSERDY) {
-	}
-
-	// Disable radio reset and wait it's ready
-	stm32.RCC.CSR.ClearBits(stm32.RCC_CSR_RFRST)
-	for stm32.RCC.CSR.HasBits(stm32.RCC_CSR_RFRSTF) {
-	}
-
-	// Disable radio NSS=1
-	stm32.PWR.SUBGHZSPICR.SetBits(stm32.PWR_SUBGHZSPICR_NSS)
-
-	// Enable Exti Line 44: Radio IRQ ITs for CPU1 (RM0461-14.3.1)
-	stm32.EXTI.C1IMR2.SetBits(0x1000) // IM44 ===> TEST
-
-	// Enable radio busy wakeup from Standby for CPU
-	stm32.PWR.CR3.SetBits(stm32.PWR_CR3_EWRFBUSY)
-
-	// Clear busy flag
-	stm32.PWR.SCR.Set(stm32.PWR_SCR_CWRFBUSYF)
-
-	//  SUBGHZSPI configuration
-	stm32.SPI3.CR1.ClearBits(stm32.SPI_CR1_SPE)                                                   // Disable SPI
-	stm32.SPI3.CR1.Set(stm32.SPI_CR1_MSTR | stm32.SPI_CR1_SSI | (0b010 << 3) | stm32.SPI_CR1_SSM) // Software Slave Management (NSS) + /8 prescaler
-	stm32.SPI3.CR2.Set(stm32.SPI_CR2_FRXTH | (0b111 << 8))                                        // FIFO Threshold and 8bit size
-	stm32.SPI3.CR1.SetBits(stm32.SPI_CR1_SPE)                                                     // Enable SPI
-
-	return nil
 }
