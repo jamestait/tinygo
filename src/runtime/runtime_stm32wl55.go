@@ -8,16 +8,6 @@ import (
 	"machine"
 )
 
-const (
-/*
-	TICK_RATE        = 1000 // 1 KHz
-	TICK_TIMER_IRQ   = stm32.IRQ_TIM1
-	TICK_TIMER_FREQ  = 4000000 // 32 MHz
-	SLEEP_TIMER_IRQ  = stm32.IRQ_TIM2
-	SLEEP_TIMER_FREQ = 4000000 // 32 MHz
-*/
-)
-
 type arrtype = uint32
 
 func init() {
@@ -51,11 +41,12 @@ const (
 	RCC_CFGR_SWS_HSI    = 0x1
 
 	HSE_STARTUP_TIMEOUT = 0x0500
+
 	/* PLL Options - See RMN0461 Reference Manual pg. 247 */
-	PLL_M = 2
-	PLL_N = 6
+	PLL_M = 1
+	PLL_N = 8
 	PLL_R = 2
-	PLL_P = 2
+	PLL_P = 7
 	PLL_Q = 2
 )
 
