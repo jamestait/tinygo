@@ -27,6 +27,10 @@ func (f stdioFileHandle) Read(b []byte) (n int, err error) {
 	return 0, ErrUnsupported
 }
 
+func (f stdioFileHandle) ReadAt(b []byte, off int64) (n int, err error) {
+	return 0, ErrNotImplemented
+}
+
 // Write writes len(b) bytes to the output. It returns the number of bytes
 // written or an error if this file is not stdout or stderr.
 func (f stdioFileHandle) Write(b []byte) (n int, err error) {
@@ -48,3 +52,11 @@ func (f stdioFileHandle) Close() error {
 
 //go:linkname putchar runtime.putchar
 func putchar(c byte)
+
+func Pipe() (r *File, w *File, err error) {
+	return nil, nil, ErrNotImplemented
+}
+
+func tempDir() string {
+	return "/tmp"
+}

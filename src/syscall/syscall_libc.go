@@ -37,6 +37,15 @@ func Read(fd int, p []byte) (n int, err error) {
 	return
 }
 
+func Pread(fd int, p []byte, offset int64) (n int, err error) {
+	buf, count := splitSlice(p)
+	n = libc_pread(int32(fd), buf, uint(count), offset)
+	if n < 0 {
+		err = getErrno()
+	}
+	return
+}
+
 func Seek(fd int, offset int64, whence int) (off int64, err error) {
 	return 0, ENOSYS // TODO
 }
@@ -45,6 +54,24 @@ func Open(path string, flag int, mode uint32) (fd int, err error) {
 	data := cstring(path)
 	fd = int(libc_open(&data[0], int32(flag), mode))
 	if fd < 0 {
+		err = getErrno()
+	}
+	return
+}
+
+func Chdir(path string) (err error) {
+	data := cstring(path)
+	fail := int(libc_chdir(&data[0]))
+	if fail < 0 {
+		err = getErrno()
+	}
+	return
+}
+
+func Chmod(path string, mode uint32) (err error) {
+	data := cstring(path)
+	fail := int(libc_chmod(&data[0], mode))
+	if fail < 0 {
 		err = getErrno()
 	}
 	return
@@ -78,6 +105,12 @@ func Unlink(path string) (err error) {
 }
 
 func Kill(pid int, sig Signal) (err error) {
+	return ENOSYS // TODO
+}
+
+type SysProcAttr struct{}
+
+func Pipe2(p []int, flags int) (err error) {
 	return ENOSYS // TODO
 }
 
@@ -115,6 +148,26 @@ func Mprotect(b []byte, prot int) (err error) {
 	return
 }
 
+func Environ() []string {
+	environ := libc_environ
+	var envs []string
+	for *environ != nil {
+		// Convert the C string to a Go string.
+		length := libc_strlen(*environ)
+		var envVar string
+		rawEnvVar := (*struct {
+			ptr    unsafe.Pointer
+			length uintptr
+		})(unsafe.Pointer(&envVar))
+		rawEnvVar.ptr = *environ
+		rawEnvVar.length = length
+		envs = append(envs, envVar)
+		// This is the Go equivalent of "environ++" in C.
+		environ = (*unsafe.Pointer)(unsafe.Pointer(uintptr(unsafe.Pointer(environ)) + unsafe.Sizeof(environ)))
+	}
+	return envs
+}
+
 // cstring converts a Go string to a C string.
 func cstring(s string) []byte {
 	data := make([]byte, len(s)+1)
@@ -128,6 +181,9 @@ func splitSlice(p []byte) (buf *byte, len uintptr) {
 	return slice.buf, slice.len
 }
 
+//export strlen
+func libc_strlen(ptr unsafe.Pointer) uintptr
+
 // ssize_t write(int fd, const void *buf, size_t count)
 //export write
 func libc_write(fd int32, buf *byte, count uint) int
@@ -139,6 +195,10 @@ func libc_getenv(name *byte) *byte
 // ssize_t read(int fd, void *buf, size_t count);
 //export read
 func libc_read(fd int32, buf *byte, count uint) int
+
+// ssize_t pread(int fd, void *buf, size_t count, off_t offset);
+//export pread
+func libc_pread(fd int32, buf *byte, count uint, offset int64) int
 
 // int open(const char *pathname, int flags, mode_t mode);
 //export open
@@ -156,6 +216,14 @@ func libc_mmap(addr unsafe.Pointer, length uintptr, prot, flags, fd int32, offse
 //export mprotect
 func libc_mprotect(addr unsafe.Pointer, len uintptr, prot int32) int32
 
+// int chdir(const char *pathname, mode_t mode);
+//export chdir
+func libc_chdir(pathname *byte) int32
+
+// int chmod(const char *pathname, mode_t mode);
+//export chmod
+func libc_chmod(pathname *byte, mode uint32) int32
+
 // int mkdir(const char *pathname, mode_t mode);
 //export mkdir
 func libc_mkdir(pathname *byte, mode uint32) int32
@@ -167,3 +235,6 @@ func libc_rmdir(pathname *byte) int32
 // int unlink(const char *pathname);
 //export unlink
 func libc_unlink(pathname *byte) int32
+
+//go:extern environ
+var libc_environ *unsafe.Pointer

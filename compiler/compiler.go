@@ -1792,20 +1792,7 @@ func (b *builder) createExpr(expr ssa.Value) (llvm.Value, error) {
 		if expr.IsString {
 			return b.createRuntimeCall("stringNext", []llvm.Value{llvmRangeVal, it}, "range.next"), nil
 		} else { // map
-			llvmKeyType := b.getLLVMType(rangeVal.Type().Underlying().(*types.Map).Key())
-			llvmValueType := b.getLLVMType(rangeVal.Type().Underlying().(*types.Map).Elem())
-
-			mapKeyAlloca, mapKeyPtr, mapKeySize := b.createTemporaryAlloca(llvmKeyType, "range.key")
-			mapValueAlloca, mapValuePtr, mapValueSize := b.createTemporaryAlloca(llvmValueType, "range.value")
-			ok := b.createRuntimeCall("hashmapNext", []llvm.Value{llvmRangeVal, it, mapKeyPtr, mapValuePtr}, "range.next")
-
-			tuple := llvm.Undef(b.ctx.StructType([]llvm.Type{b.ctx.Int1Type(), llvmKeyType, llvmValueType}, false))
-			tuple = b.CreateInsertValue(tuple, ok, 0, "")
-			tuple = b.CreateInsertValue(tuple, b.CreateLoad(mapKeyAlloca, ""), 1, "")
-			tuple = b.CreateInsertValue(tuple, b.CreateLoad(mapValueAlloca, ""), 2, "")
-			b.emitLifetimeEnd(mapKeyPtr, mapKeySize)
-			b.emitLifetimeEnd(mapValuePtr, mapValueSize)
-			return tuple, nil
+			return b.createMapIteratorNext(rangeVal, llvmRangeVal, it), nil
 		}
 	case *ssa.Phi:
 		phi := b.CreatePHI(b.getLLVMType(expr.Type()), "")
@@ -2802,9 +2789,8 @@ func (b *builder) createUnOp(unop *ssa.UnOp) (llvm.Value, error) {
 			//     var C.add unsafe.Pointer
 			// Instead of a load from the global, create a bitcast of the
 			// function pointer itself.
-			globalName := b.getGlobalInfo(unop.X.(*ssa.Global)).linkName
-			name := globalName[:len(globalName)-len("$funcaddr")]
-			fn := b.getFunction(b.fn.Pkg.Members["C."+name].(*ssa.Function))
+			name := strings.TrimSuffix(unop.X.(*ssa.Global).Name(), "$funcaddr")
+			fn := b.getFunction(b.fn.Pkg.Members[name].(*ssa.Function))
 			if fn.IsNil() {
 				return llvm.Value{}, b.makeError(unop.Pos(), "cgo function not found: "+name)
 			}
